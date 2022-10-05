@@ -55,16 +55,23 @@ class BetaVAE(nn.Module):
         self.linear_b = nn.Linear(100, 10)
 
 
-        self.decode = nn.Linear(10, self.number_of_genes)
-        self.decode.weight.data.fill_(0.5)
+        self.decode = nn.Sequential(
+            nn.Linear(10, 100),
+            nn.ReLU(),
+            nn.Dropout(),
 
-      
+            nn.Linear(100, 1000),
+            nn.ReLU(),
+            nn.Dropout(),
+
+            nn.Linear(1000, self.number_of_genes)
+        )
 
     def forward(self, x):
         # Encoding
         x = self.encode(x)
-        a = torch.exp(self.linear_a(x))
-        b = torch.exp(self.linear_b(x))
+        a = torch.exp(self.linear_a(x)+1e-5)
+        b = torch.exp(self.linear_b(x)+1e-5)
 
         # Random sampling (reparametrization trick)
         z = Beta(a, b).sample()
@@ -156,7 +163,6 @@ class WGAN_GP(object):
             g_loss = g_loss.mean()
             g_loss.backward()
             self.g_optimizer.step()
-            self.generator.decode.weight.data.copy_(torch.sigmoid(self.generator.decode.weight.data))
 
             if g_iter % 1000 == 0:
                 print(f'Generator iteration: {g_iter}/{self.n_generator}, g_loss: {g_loss},  d_loss:{d_loss}')
