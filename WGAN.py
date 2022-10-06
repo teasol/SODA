@@ -16,12 +16,10 @@ from torch.utils.data import DataLoader, Dataset
 from torch.distributions.beta import Beta
 
 import matplotlib.pyplot as plt
-import seaborn as sns
 import numpy as np
 import pandas as pd
 import os
 import pickle
-
 
 class CustomDataset(Dataset):
     def __init__(self, mtx):
@@ -35,79 +33,48 @@ class CustomDataset(Dataset):
         X = torch.FloatTensor(np.asarray(self.mtx[:, idx].todense()).squeeze())        
         return X
 
-
-class BetaVAE(nn.Module):
-    def __init__(self, number_of_genes):
-        super(BetaVAE, self).__init__()
-
+class Generator(nn.Module):
+    def __init__(self, number_of_genes, device):
+        super(Generator, self).__init__()
         self.number_of_genes = number_of_genes
+        self.model = nn.Sequential(
+            nn.Linear(10, 512),
+            nn.ReLU(),
+            nn.Dropout(),
 
-        self.encode = nn.Sequential(
-            nn.Linear(self.number_of_genes, 1000),
+            nn.Linear(512, 1024),
             nn.ReLU(),
             nn.Dropout(),
-            
-            nn.Linear(1000, 100),
+
+            nn.Linear(1024, 2048),
             nn.ReLU(),
             nn.Dropout(),
+
+            nn.Linear(2048, self.number_of_genes)
         )
-        self.linear_a = nn.Linear(100, 10)
-        self.linear_b = nn.Linear(100, 10)
-
-
-        self.decode = nn.Sequential(
-            nn.Linear(10, 100),
-            nn.ReLU(),
-            nn.Dropout(),
-
-            nn.Linear(100, 1000),
-            nn.ReLU(),
-            nn.Dropout(),
-
-            nn.Linear(1000, self.number_of_genes)
-        )
-
+    
     def forward(self, x):
-        # Encoding
-        x = self.encode(x)
-        a = torch.exp(self.linear_a(x)+1e-5)
-        b = torch.exp(self.linear_b(x)+1e-5)
-
-        # Random sampling (reparametrization trick)
-        z = Beta(a, b).sample()
-
-        # Decoding
-        x_decoded = self.decode(z)
-
-        
-        return x_decoded
+        z = self.model(x)
+        return z
 
 class Critic(nn.Module):
-    def __init__(self, number_of_genes):
+    def __init__(self, number_of_genes, device):
         super(Critic, self).__init__()
         self.number_of_genes = number_of_genes
         self.model = nn.Sequential(
-            nn.Linear(self.number_of_genes, 512),
+            nn.Linear(self.number_of_genes, 2048),
             nn.ReLU(),
             nn.Dropout(),
 
-            nn.Linear(512, 256),
+            nn.Linear(2048, 1024),
             nn.ReLU(),
             nn.Dropout(),
 
-            nn.Linear(256, 128),
+            nn.Linear(1024, 512),
             nn.ReLU(),
             nn.Dropout(),
 
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            nn.Dropout(),
-
-            nn.Linear(64, 32),
-            nn.ReLU(),
-            nn.Dropout(),
-
-            nn.Linear(32, 1)
+            nn.Linear(512, 1)
         )
     
     def forward(self, x):
@@ -117,56 +84,64 @@ class Critic(nn.Module):
 class WGAN_GP(object):
     def __init__(self, number_of_genes):
         self.device = "cuda:0"
-        self.learning_rate = 1e-4
+        self.learning_rate = 1e-6
         self.n_critic = 5
-        self.n_generator = 100000
+        self.n_generator = 10000
         self.batch_size = 32
 
-        self.lambda_term = 10
+        self.lambda_term = 100
 
-        self.generator = BetaVAE(number_of_genes).to(self.device)
-        self.critic = Critic(number_of_genes).to(self.device)
+        self.generator = Generator(number_of_genes, self.device).to(self.device)
+        self.critic = Critic(number_of_genes, self.device).to(self.device)
 
         self.d_optimizer = optim.Adam(self.generator.parameters(), lr=self.learning_rate)
         self.g_optimizer = optim.Adam(self.critic.parameters(), lr=self.learning_rate)
 
     def train(self, train_loader):
         for g_iter in range(self.n_generator):
+            if g_iter % 100 == 0:
+                print(f'Generator iteration: {g_iter}/{self.n_generator}', end=' ')
+
             for p in self.critic.parameters():
                 p.requires_grad = True
 
             for t in range(self.n_critic):
                 X = next(iter(train_loader))
                 X = X.to(self.device)
+                z = torch.randn((X.size()[0], 10)).to(self.device)
                 self.critic.zero_grad()
 
                 d_loss_real = self.critic(X)
 
-                fake_X = self.generator(X)
-                d_loss_fake = self.critic(fake_X)
+                fake_cell = self.generator(z)
+                d_loss_fake = self.critic(fake_cell)
 
-                gradient_penalty = self.calculate_gradient_penalty(X, fake_X)
+                gradient_penalty = self.calculate_gradient_penalty(X, fake_cell)
 
                 d_loss = d_loss_fake - d_loss_real + gradient_penalty
+                W_distance = (torch.abs(d_loss_real - d_loss_fake)).sum()
                 d_loss = d_loss.mean()
                 d_loss.backward()
-                self.d_optimizer.step()              
-
+                self.d_optimizer.step()
+                
+                if g_iter % 100 == 0:
+                    print(f'Real Loss {d_loss_real.mean()}, Fake Loss {d_loss_fake.mean()}, W distance {W_distance}', end=' ')
             for p in self.critic.parameters():
                 p.requires_grad = False
 
             X = next(iter(train_loader))
             X = X.to(self.device)
+            z = torch.randn((X.size()[0], 10)).to(self.device)
             
             self.generator.zero_grad()
-            fake_cell = self.generator(X)
+            fake_cell = self.generator(z)
             g_loss = -self.critic(fake_cell)
             g_loss = g_loss.mean()
             g_loss.backward()
             self.g_optimizer.step()
 
-            if g_iter % 1000 == 0:
-                print(f'Generator iteration: {g_iter}/{self.n_generator}, g_loss: {g_loss},  negative_critic_loss:{-d_loss}')
+            if g_iter % 100 == 0:
+                print(f'G Loss {g_loss}')
 
         self.save_model()
 
@@ -190,8 +165,8 @@ class WGAN_GP(object):
         return grad_penalty
 
     def save_model(self):
-        torch.save(self.generator.state_dict(), '/data/home/kimds/SODA/vae.pkl')
-        torch.save(self.critic.state_dict(), '/data/home/kimds/SODA/critic.pkl')
+        torch.save(self.generator.state_dict(), './vae.pkl')
+        torch.save(self.critic.state_dict(), './critic.pkl')
         print('Models save to ./vae.pkl & ./critic.pkl ')
 
     def load_model(self, D_model_filename, G_model_filename):
@@ -203,18 +178,19 @@ class WGAN_GP(object):
         print('Discriminator model loaded from {}-'.format(D_model_path))
 
 
-if __name__ == "__main__":
-    DIR_PATH = "/data/home/kimds/Data/Normalized/"
-    census = io.mmread(DIR_PATH+'census.mtx')
-    heart = io.mmread(DIR_PATH+'heart.mtx')
-    immune = io.mmread(DIR_PATH+'immune.mtx')
-    # covid = io.mmread(DIR_PATH+'covid.mtx')
+DIR_PATH = "/data/home/kimds/Data/Normalized/"
+census = io.mmread(DIR_PATH+'census.mtx')
+heart = io.mmread(DIR_PATH+'heart.mtx')
+immune = io.mmread(DIR_PATH+'immune.mtx')
+# covid = io.mmread(DIR_PATH+'covid.mtx')
 
-    data = sparse.hstack([census, heart, immune])
-    number_of_genes = data.shape[0]
 
-    dataset = CustomDataset(data)
-    train_loader = DataLoader(dataset, batch_size=32, shuffle=True, drop_last=True)
+data = sparse.hstack([census, heart, immune])
+number_of_genes = data.shape[0]
 
-    aae = WGAN_GP(number_of_genes)
-    aae.train(train_loader)
+dataset = CustomDataset(data)
+train_loader = DataLoader(dataset, batch_size=32, shuffle=True, drop_last=True)
+
+
+aae = WGAN_GP(number_of_genes)
+aae.train(train_loader)
