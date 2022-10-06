@@ -36,21 +36,56 @@ class CustomDataset(Dataset):
 class Generator(nn.Module):
     def __init__(self, number_of_genes, device):
         super(Generator, self).__init__()
+        self.device = device
         self.number_of_genes = number_of_genes
         self.model = nn.Sequential(
-            nn.Linear(10, 512),
+            # 1
+            nn.Linear(10, 32),
+            nn.ReLU(),
+            nn.Dropout(),
+            
+            # 2
+            nn.Linear(32, 64),
             nn.ReLU(),
             nn.Dropout(),
 
+            # 3
+            nn.Linear(64, 128),
+            nn.ReLU(),
+            nn.Dropout(),
+
+            # 4
+            nn.Linear(128, 256),
+            nn.ReLU(),
+            nn.Dropout(),
+
+            # 5
+            nn.Linear(256, 512),
+            nn.ReLU(),
+            nn.Dropout(),
+
+            # 6
             nn.Linear(512, 1024),
             nn.ReLU(),
             nn.Dropout(),
 
+            # 7
             nn.Linear(1024, 2048),
             nn.ReLU(),
             nn.Dropout(),
+            
+            # 8
+            nn.Linear(2048, 4096),
+            nn.ReLU(),
+            nn.Dropout(),
+            
+            # 9
+            nn.Linear(4096, 8192),
+            nn.ReLU(),
+            nn.Dropout(),
 
-            nn.Linear(2048, self.number_of_genes)
+            # 10
+            nn.Linear(8192, self.number_of_genes)
         )
     
     def forward(self, x):
@@ -60,21 +95,46 @@ class Generator(nn.Module):
 class Critic(nn.Module):
     def __init__(self, number_of_genes, device):
         super(Critic, self).__init__()
+        self.device = device
         self.number_of_genes = number_of_genes
         self.model = nn.Sequential(
-            nn.Linear(self.number_of_genes, 2048),
+            nn.Linear(self.number_of_genes, 8192),
+            nn.ReLU(),
+            nn.Dropout(),
+
+            nn.Linear(8192, 4096),
+            nn.ReLU(),
+            nn.Dropout(),
+
+            nn.Linear(4096, 2048),
             nn.ReLU(),
             nn.Dropout(),
 
             nn.Linear(2048, 1024),
             nn.ReLU(),
             nn.Dropout(),
-
+            
             nn.Linear(1024, 512),
             nn.ReLU(),
             nn.Dropout(),
-
-            nn.Linear(512, 1)
+            
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Dropout(),
+            
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Dropout(),
+            
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Dropout(),
+            
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Dropout(),
+            
+            nn.Linear(32, 1)
         )
     
     def forward(self, x):
@@ -83,7 +143,7 @@ class Critic(nn.Module):
 
 class WGAN_GP(object):
     def __init__(self, number_of_genes):
-        self.device = "cuda:0"
+        self.device = "cuda:1"
         self.learning_rate = 1e-6
         self.n_critic = 5
         self.n_generator = 100
@@ -161,9 +221,9 @@ class WGAN_GP(object):
         return grad_penalty
 
     def save_model(self):
-        torch.save(self.generator.state_dict(), './vae.pkl')
-        torch.save(self.critic.state_dict(), './critic.pkl')
-        print('Models save to ./vae.pkl & ./critic.pkl ')
+        torch.save(self.generator.state_dict(), './vae_2.pkl')
+        torch.save(self.critic.state_dict(), './critic_2.pkl')
+        print('Models save to ./vae_2.pkl & ./critic_2.pkl ')
 
     def load_model(self, D_model_filename, G_model_filename):
         D_model_path = os.path.join(os.getcwd(), D_model_filename)
@@ -174,19 +234,20 @@ class WGAN_GP(object):
         print('Discriminator model loaded from {}-'.format(D_model_path))
 
 
-DIR_PATH = "/data/home/kimds/Data/Normalized/"
-census = io.mmread(DIR_PATH+'census.mtx')
-heart = io.mmread(DIR_PATH+'heart.mtx')
-immune = io.mmread(DIR_PATH+'immune.mtx')
-# covid = io.mmread(DIR_PATH+'covid.mtx')
+if __name__ == '__main__':
+    DIR_PATH = "/data/home/kimds/Data/Normalized/"
+    census = io.mmread(DIR_PATH+'census.mtx')
+    heart = io.mmread(DIR_PATH+'heart.mtx')
+    immune = io.mmread(DIR_PATH+'immune.mtx')
+    # covid = io.mmread(DIR_PATH+'covid.mtx')
 
 
-data = sparse.hstack([census, heart, immune])
-number_of_genes = data.shape[0]
+    data = sparse.hstack([census, heart, immune])
+    number_of_genes = data.shape[0]
 
-dataset = CustomDataset(data)
-train_loader = DataLoader(dataset, batch_size=32, shuffle=True, drop_last=True)
+    dataset = CustomDataset(data)
+    train_loader = DataLoader(dataset, batch_size=64, shuffle=True, drop_last=True)
 
 
-aae = WGAN_GP(number_of_genes)
-aae.train(train_loader)
+    aae = WGAN_GP(number_of_genes)
+    aae.train(train_loader)
