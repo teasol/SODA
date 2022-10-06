@@ -86,10 +86,10 @@ class WGAN_GP(object):
         self.device = "cuda:0"
         self.learning_rate = 1e-6
         self.n_critic = 5
-        self.n_generator = 10000
+        self.n_generator = 100
         self.batch_size = 32
 
-        self.lambda_term = 100
+        self.lambda_term = 10
 
         self.generator = Generator(number_of_genes, self.device).to(self.device)
         self.critic = Critic(number_of_genes, self.device).to(self.device)
@@ -102,45 +102,41 @@ class WGAN_GP(object):
             if g_iter % 100 == 0:
                 print(f'Generator iteration: {g_iter}/{self.n_generator}', end=' ')
 
-            for p in self.critic.parameters():
-                p.requires_grad = True
-
-            for t in range(self.n_critic):
-                X = next(iter(train_loader))
+            for X in train_loader:
                 X = X.to(self.device)
                 z = torch.randn((X.size()[0], 10)).to(self.device)
-                self.critic.zero_grad()
 
-                d_loss_real = self.critic(X)
+                for p in self.critic.parameters():
+                    p.requires_grad = True
 
-                fake_cell = self.generator(z)
-                d_loss_fake = self.critic(fake_cell)
+                for t in range(self.n_critic):
+                    self.critic.zero_grad()
 
-                gradient_penalty = self.calculate_gradient_penalty(X, fake_cell)
+                    d_loss_real = self.critic(X)
 
-                d_loss = d_loss_fake - d_loss_real + gradient_penalty
-                W_distance = (torch.abs(d_loss_real - d_loss_fake)).sum()
-                d_loss = d_loss.mean()
-                d_loss.backward()
-                self.d_optimizer.step()
+                    fake_cell = self.generator(z)
+                    d_loss_fake = self.critic(fake_cell)
+
+                    gradient_penalty = self.calculate_gradient_penalty(X, fake_cell)
+
+                    d_loss = d_loss_fake - d_loss_real + gradient_penalty
+                    W_distance = (torch.abs(d_loss_real - d_loss_fake)).sum()
+                    d_loss = d_loss.mean()
+                    d_loss.backward()
+                    self.d_optimizer.step()
                 
-                if g_iter % 100 == 0:
-                    print(f'Real Loss {d_loss_real.mean()}, Fake Loss {d_loss_fake.mean()}, W distance {W_distance}', end=' ')
-            for p in self.critic.parameters():
-                p.requires_grad = False
+                for p in self.critic.parameters():
+                    p.requires_grad = False
+                
+                self.generator.zero_grad()
+                fake_cell = self.generator(z)
+                g_loss = -self.critic(fake_cell)
+                g_loss = g_loss.mean()
+                g_loss.backward()
+                self.g_optimizer.step()
 
-            X = next(iter(train_loader))
-            X = X.to(self.device)
-            z = torch.randn((X.size()[0], 10)).to(self.device)
-            
-            self.generator.zero_grad()
-            fake_cell = self.generator(z)
-            g_loss = -self.critic(fake_cell)
-            g_loss = g_loss.mean()
-            g_loss.backward()
-            self.g_optimizer.step()
-
-            if g_iter % 100 == 0:
+            if g_iter % 1 == 0:
+                print(f'Real Loss {d_loss_real.mean()}, Fake Loss {d_loss_fake.mean()}, W distance {W_distance}', end=' ')
                 print(f'G Loss {g_loss}')
 
         self.save_model()
