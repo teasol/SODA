@@ -1,6 +1,8 @@
 from tqdm import tqdm
 from scipy import io
 from scipy import sparse
+from datetime import datetime
+
 import scipy
 import gzip
 import scanpy
@@ -20,6 +22,16 @@ import numpy as np
 import pandas as pd
 import os
 import pickle
+
+DEVICE = "cuda:0"
+BATCH_SIZE = 512
+EPOCHS = 10
+N_CRITIC = 5
+LAMBDA_TERM = 10
+
+def write_to_file(data):
+    with open("/data/home/kimds/Output/output.txt", 'w') as f:
+        f.write(data)
 
 class CustomDataset(Dataset):
     def __init__(self, mtx):
@@ -143,13 +155,13 @@ class Critic(nn.Module):
 
 class WGAN_GP(object):
     def __init__(self, number_of_genes):
-        self.device = "cuda:1"
+        self.device = DEVICE
         self.learning_rate = 1e-6
-        self.n_critic = 5
-        self.n_generator = 100
-        self.batch_size = 32
+        self.n_critic = N_CRITIC
+        self.n_generator = EPOCHS
+        self.batch_size = BATCH_SIZE
 
-        self.lambda_term = 10
+        self.lambda_term = LAMBDA_TERM
 
         self.generator = Generator(number_of_genes, self.device).to(self.device)
         self.critic = Critic(number_of_genes, self.device).to(self.device)
@@ -196,8 +208,7 @@ class WGAN_GP(object):
                 self.g_optimizer.step()
 
             if g_iter % 1 == 0:
-                print(f'Real Loss {d_loss_real.mean()}, Fake Loss {d_loss_fake.mean()}, W distance {W_distance}', end=' ')
-                print(f'G Loss {g_loss}')
+                write_to_file(f'Real Loss {d_loss_real.mean()}, Fake Loss {d_loss_fake.mean()}, W distance {W_distance}, G Loss {g_loss}')
 
         self.save_model()
 
@@ -235,10 +246,15 @@ class WGAN_GP(object):
 
 
 if __name__ == '__main__':
+    START_TIME = datetime.now()
+    write_to_file('START TIME:', START_TIME)
     DIR_PATH = "/data/home/kimds/Data/Normalized/"
     census = io.mmread(DIR_PATH+'census.mtx')
+    write_to_file('census file loaded')
     heart = io.mmread(DIR_PATH+'heart.mtx')
+    write_to_file('heart file loaded')
     immune = io.mmread(DIR_PATH+'immune.mtx')
+    write_to_file('immune file loaded')
     # covid = io.mmread(DIR_PATH+'covid.mtx')
 
 
@@ -246,8 +262,8 @@ if __name__ == '__main__':
     number_of_genes = data.shape[0]
 
     dataset = CustomDataset(data)
-    train_loader = DataLoader(dataset, batch_size=64, shuffle=True, drop_last=True)
-
+    train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
 
     aae = WGAN_GP(number_of_genes)
+    write_to_file('Train Started')
     aae.train(train_loader)
