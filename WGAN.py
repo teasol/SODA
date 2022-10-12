@@ -247,7 +247,7 @@ class WGAN_GP(object):
 
 if __name__ == '__main__':
     START_TIME = datetime.now()
-    write_to_file('START TIME:', START_TIME)
+    write_to_file('START TIME:%s'%START_TIME)
     DIR_PATH = "/data/home/kimds/Data/Normalized/"
     census = io.mmread(DIR_PATH+'census.mtx')
     write_to_file('census file loaded')
